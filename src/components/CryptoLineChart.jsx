@@ -21,6 +21,13 @@ const CryptoLineChart = ({ data }) => {
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
 
+        // Clip Path ensures the chart doesn't spill out of the axes
+        svg.append("defs").append("clipPath")
+            .attr("id", "clip")
+            .append("rect")
+            .attr("width", width)
+            .attr("height", height);
+
         // Scales
         const x = d3.scaleTime()
             .domain(d3.extent(data, d => d.date))
@@ -31,26 +38,18 @@ const CryptoLineChart = ({ data }) => {
             .range([height, 0]);
 
         // Axes
-        svg.append('g')
+        const xAxis = svg.append('g')
             .attr('transform', `translate(0,${height})`)
-            .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat('%b %d')))
-            .attr('color', '#a0a0a0')
-            .selectAll('text')
-            .style('fill', '#a0a0a0');
+            .call(d3.axisBottom(x).ticks(5).tickFormat(d3.timeFormat('%b %d')));
 
-        svg.append('g')
-            .call(d3.axisLeft(y).tickFormat(d => `$${d / 1000}k`))
-            .attr('color', '#a0a0a0')
-            .selectAll('text')
-            .style('fill', '#a0a0a0');
+        const yAxis = svg.append('g')
+            .call(d3.axisLeft(y).tickFormat(d => `$${d / 1000}k`));
 
-        // Grid lines (optional, but nice)
-        svg.append('g')
-            .attr('class', 'grid')
-            .call(d3.axisLeft(y).tickSize(-width).tickFormat(''))
-            .attr('color', 'rgba(255, 255, 255, 0.05)');
+        // Style axes
+        svg.selectAll('.tick text').style('fill', '#a0a0a0');
+        svg.selectAll('.domain, .tick line').style('stroke', '#a0a0a0');
 
-        // Line
+        // Line Generator
         const line = d3.line()
             .x(d => x(d.date))
             .y(d => y(d.price))
@@ -74,25 +73,42 @@ const CryptoLineChart = ({ data }) => {
             .attr("offset", "100%")
             .attr("stop-color", "#005bea");
 
-        // Path
-        const path = svg.append('path')
+        // Line Path Group (clipped)
+        const lineGroup = svg.append('g').attr("clip-path", "url(#clip)");
+
+        const path = lineGroup.append('path')
             .datum(data)
+            .attr('class', 'line')
             .attr('fill', 'none')
             .attr('stroke', 'url(#line-gradient)')
             .attr('stroke-width', 3)
             .attr('d', line);
 
-        // Initial Animation
-        const totalLength = path.node().getTotalLength();
-        path
-            .attr("stroke-dasharray", totalLength + " " + totalLength)
-            .attr("stroke-dashoffset", totalLength)
-            .transition()
-            .duration(2000)
-            .ease(d3.easeCubicOut)
-            .attr("stroke-dashoffset", 0);
+        // Zoom Behavior
+        const zoom = d3.zoom()
+            .scaleExtent([1, 10]) // Zoom limit: 1x to 10x
+            .extent([[0, 0], [width, height]])
+            .translateExtent([[0, 0], [width, height]])
+            .on("zoom", updateChart);
 
-        // Hover effects (Tooltip)
+        // Invisible Overlay for Zoom & Tooltips
+        const overlay = svg.append('rect')
+            .attr('width', width)
+            .attr('height', height)
+            .style('fill', 'none')
+            .style('pointer-events', 'all')
+            .call(zoom);
+
+        // Focus Circle (Tooltip cursor)
+        const focus = svg.append('g')
+            .attr('class', 'focus')
+            .style('display', 'none');
+
+        focus.append('circle')
+            .attr('r', 5)
+            .attr('fill', '#fff');
+
+        // Tooltip Div
         const tooltip = d3.select("body").append("div")
             .attr("class", "tooltip")
             .style("opacity", 0)
@@ -104,21 +120,28 @@ const CryptoLineChart = ({ data }) => {
             .style("pointer-events", "none")
             .style("font-size", "12px");
 
-        // Overlay for gathering events
-        const overlay = svg.append('rect')
-            .attr('width', width)
-            .attr('height', height)
-            .style('fill', 'none')
-            .style('pointer-events', 'all');
+        let newX = x; // Keep track of current scale for tooltip
 
-        const focus = svg.append('g')
-            .attr('class', 'focus')
-            .style('display', 'none');
+        function updateChart(event) {
+            // Recover the new scale
+            newX = event.transform.rescaleX(x);
 
-        focus.append('circle')
-            .attr('r', 5)
-            .attr('fill', '#fff');
+            // Update axes with new scale
+            xAxis.call(d3.axisBottom(newX).ticks(5).tickFormat(d3.timeFormat('%b %d')));
 
+            // Re-apply styles to new axis elements
+            xAxis.selectAll('text').style('fill', '#a0a0a0');
+            xAxis.selectAll('.domain, .tick line').style('stroke', '#a0a0a0');
+
+            // Update line position
+            path.attr('d', d3.line()
+                .x(d => newX(d.date))
+                .y(d => y(d.price))
+                .curve(d3.curveMonotoneX)
+            );
+        }
+
+        // Mouse Events for Tooltip (Attached to overlay)
         overlay
             .on('mouseover', () => focus.style('display', null))
             .on('mouseout', () => {
@@ -126,19 +149,23 @@ const CryptoLineChart = ({ data }) => {
                 tooltip.style('opacity', 0);
             })
             .on('mousemove', function (event) {
-                const x0 = x.invert(d3.pointer(event)[0]);
+                // Use newX for inversion to handle zoomed state
+                const x0 = newX.invert(d3.pointer(event)[0]);
                 const bisect = d3.bisector(d => d.date).left;
                 const i = bisect(data, x0, 1);
                 const d0 = data[i - 1];
                 const d1 = data[i];
-                const d = x0 - d0.date > d1.date - x0 ? d1 : d0;
+                // Handle edge cases where i might be out of bounds
+                const d = (d0 && d1) ? (x0 - d0.date > d1.date - x0 ? d1 : d0) : (d0 || d1);
 
-                focus.attr('transform', `translate(${x(d.date)},${y(d.price)})`);
+                if (d) {
+                    focus.attr('transform', `translate(${newX(d.date)},${y(d.price)})`);
 
-                tooltip.transition().duration(200).style("opacity", .9);
-                tooltip.html(`pDate: ${d3.timeFormat('%Y-%m-%d')(d.date)}<br/>Price: $${d.price.toFixed(2)}`)
-                    .style("left", (event.pageX + 10) + "px")
-                    .style("top", (event.pageY - 28) + "px");
+                    tooltip.transition().duration(50).style("opacity", .9);
+                    tooltip.html(`Date: ${d3.timeFormat('%Y-%m-%d')(d.date)}<br/>Price: $${d.price.toFixed(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                }
             });
 
         return () => {
