@@ -54,3 +54,5 @@ To delete all provisioned AWS resources and avoid incurring costs:
 ```bash
 npm run destroy
 ```
+
+At the moment of publishing there is a sample running on https://d1lkadr265qk1d.cloudfront.net/dashboard
