@@ -1,12 +1,19 @@
 .controls-container {
     display: flex;
     justify-content: center;
-    gap: 1rem;
+    align-items: center;
     margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
 }
 
 .range-button {
-    padding: 0.5rem 1.5rem;
+    padding: 0.5rem 1.25rem;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: var(--text-secondary);
@@ -14,6 +21,7 @@
     cursor: pointer;
     font-weight: 500;
     transition: all 0.2s ease;
+    font-size: 0.9rem;
 }
 
 .range-button:hover {
@@ -27,4 +35,14 @@
     color: #fff;
     border: none;
     box-shadow: 0 4px 10px rgba(0, 212, 255, 0.3);
+}
+
+@media (max-width: 768px) {
+    .controls-container {
+        flex-direction: column;
+    }
+
+    .diver {
+        display: none;
+    }
 }
